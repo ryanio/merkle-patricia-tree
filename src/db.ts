@@ -1,5 +1,4 @@
 import { LevelUp } from 'levelup'
-import { ErrorCallback, BufferCallback } from './types'
 const level = require('level-mem')
 
 export const ENCODING_OPTS = { keyEncoding: 'binary', valueEncoding: 'binary' }
@@ -34,19 +33,15 @@ export class DB {
   /**
    * Retrieves a raw value from leveldb.
    * @param {Buffer} key
-   * @param {Function} cb A callback `Function`, which is given the arguments
-   * `err` - for errors that may have occured
-   * and `value` - the found value in a `Buffer` or if no value was found `null`.
+   * @returns {Promise} - Promise resolves with `Buffer` if a value is found or `null` if no value is found.
    */
-  get(key: Buffer, cb: BufferCallback) {
-    if (!Buffer.isBuffer(key)) throw new Error('Invalid input: expected buffer')
-
-    this._leveldb.get(key, ENCODING_OPTS, (err?: Error, v?: Buffer) => {
-      if (err || !v) {
-        cb(null, null)
-      } else {
-        cb(null, v)
+  async get(key: Buffer): Promise<Buffer | null> {
+    return new Promise(async (resolve, reject) => {
+      if (!Buffer.isBuffer(key)) {
+        reject(new Error('Invalid input: expected buffer'))
       }
+      const value = await this._leveldb.get(key, ENCODING_OPTS)
+      resolve(value)
     })
   }
 
@@ -54,38 +49,50 @@ export class DB {
    * Writes a value directly to leveldb.
    * @param {Buffer} key The key as a `Buffer` or `String`
    * @param {Buffer} value The value to be stored
-   * @param {Function} cb A callback `Function`, which is given the argument
-   * `err` - for errors that may have occured
+   * @returns {Promise}
    */
-  put(key: Buffer, val: Buffer, cb: ErrorCallback) {
-    if (!Buffer.isBuffer(key)) throw new Error('Invalid input: expected buffer')
-    if (!Buffer.isBuffer(val)) throw new Error('Invalid input: expected buffer')
-
-    this._leveldb.put(key, val, ENCODING_OPTS, cb)
+  async put(key: Buffer, val: Buffer): Promise<void> {
+    return new Promise(async (resolve, reject) => {
+      if (!Buffer.isBuffer(key)) {
+        reject(new Error('Invalid input: expected buffer'))
+      }
+      if (!Buffer.isBuffer(val)) {
+        reject(new Error('Invalid input: expected buffer'))
+      }
+      await this._leveldb.put(key, val, ENCODING_OPTS)
+      resolve()
+    })
   }
 
   /**
    * Removes a raw value in the underlying leveldb.
    * @param {Buffer} key
-   * @param {Function} cb A callback `Function`, which is given the argument
-   * `err` - for errors that may have occured
+   * @returns {Promise}
    */
-  del(key: Buffer, cb: ErrorCallback) {
-    if (!Buffer.isBuffer(key)) throw new Error('Invalid input: expected buffer')
+  async del(key: Buffer): Promise<void> {
+    return new Promise(async (resolve, reject) => {
+      if (!Buffer.isBuffer(key)) {
+        reject(new Error('Invalid input: expected buffer'))
+      }
 
-    this._leveldb.del(key, ENCODING_OPTS, cb)
+      await this._leveldb.del(key, ENCODING_OPTS)
+      resolve()
+    })
   }
 
   /**
    * Performs a batch operation on db.
    * @param {Array} opStack A stack of levelup operations
-   * @param {Function} cb A callback `Function`, which is given the argument
-   * `err` - for errors that may have occured
+   * @returns {Promise}
    */
-  batch(opStack: BatchDBOp[], cb: ErrorCallback) {
-    if (!Array.isArray(opStack)) throw new Error('Invalid input: expected buffer')
-
-    this._leveldb.batch(opStack, ENCODING_OPTS, cb)
+  batch(opStack: BatchDBOp[]): Promise<void> {
+    return new Promise(async (resolve, reject) => {
+      if (!Array.isArray(opStack)) {
+        reject(new Error('Invalid input: expected buffer'))
+      }
+      await this._leveldb.batch(opStack, ENCODING_OPTS)
+      resolve()
+    })
   }
 
   /**

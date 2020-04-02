@@ -1,11 +1,8 @@
 import { Trie as BaseTrie } from './baseTrie'
 import { ScratchReadStream } from './scratchReadStream'
 import { ScratchDB } from './scratch'
-import { callTogether } from './util/async'
 import { DB, BatchDBOp } from './db'
 import { TrieNode } from './trieNode'
-import { ErrorCallback } from './types'
-const async = require('async')
 const WriteStream = require('level-ws')
 
 export class CheckpointTrie extends BaseTrie {
@@ -50,23 +47,23 @@ export class CheckpointTrie extends BaseTrie {
    * Commits a checkpoint to disk, if current checkpoint is not nested. If
    * nested, only sets the parent checkpoint as current checkpoint.
    * @method commit
-   * @param {Function} cb the callback
+   * @returns {Promise}
    * @throws If not during a checkpoint phase
    */
-  commit(cb: Function) {
-    cb = callTogether(cb, this.sem.leave)
-
-    this.sem.take(() => {
-      if (this.isCheckpoint) {
-        this._checkpoints.pop()
-        if (!this.isCheckpoint) {
-          this._exitCpMode(true, cb)
-        } else {
-          cb()
-        }
-      } else {
-        throw new Error('trying to commit when not checkpointed')
+  commit(): Promise<void> {
+    return new Promise(async (resolve, reject) => {
+      await this.lock.wait()
+      if (!this.isCheckpoint) {
+        reject(new Error('trying to commit when not checkpointed'))
       }
+
+      this._checkpoints.pop()
+
+      if (!this.isCheckpoint) {
+        await this._exitCpMode(true)
+      }
+      await this.lock.signal()
+      resolve()
     })
   }
 
@@ -75,19 +72,18 @@ export class CheckpointTrie extends BaseTrie {
    * If during a nested checkpoint, sets root to most recent checkpoint, and sets
    * parent checkpoint as current.
    */
-  revert(cb: Function) {
-    cb = callTogether(cb, this.sem.leave)
-
-    this.sem.take(() => {
+  revert(): Promise<void> {
+    return new Promise(async (resolve) => {
+      await this.lock.wait()
       if (this.isCheckpoint) {
         this.root = this._checkpoints.pop()!
         if (!this.isCheckpoint) {
-          this._exitCpMode(false, cb)
-          return
+          await this._exitCpMode(false)
+          resolve()
         }
       }
-
-      cb()
+      this.lock.signal()
+      resolve()
     })
   }
 
@@ -110,15 +106,6 @@ export class CheckpointTrie extends BaseTrie {
   }
 
   /**
-   * Writes a value under given key directly to the
-   * key/value db, disregarding checkpoints.
-   * @deprecated
-   */
-  putRaw(key: Buffer, value: Buffer, cb: ErrorCallback) {
-    this._mainDB.put(key, value, cb)
-  }
-
-  /**
    * Enter into checkpoint mode.
    * @private
    */
@@ -131,16 +118,20 @@ export class CheckpointTrie extends BaseTrie {
    * Exit from checkpoint mode.
    * @private
    */
-  _exitCpMode(commitState: boolean, cb: Function) {
-    const scratch = this._scratch as ScratchDB
-    this._scratch = null
-    this.db = this._mainDB
+  async _exitCpMode(commitState: boolean): Promise<void> {
+    return new Promise(async (resolve) => {
+      const scratch = this._scratch as ScratchDB
+      this._scratch = null
+      this.db = this._mainDB
 
-    if (commitState) {
-      this._createScratchReadStream(scratch).pipe(WriteStream(this.db._leveldb)).on('close', cb)
-    } else {
-      async.nextTick(cb)
-    }
+      if (commitState) {
+        this._createScratchReadStream(scratch)
+          .pipe(WriteStream(this.db._leveldb))
+          .on('close', resolve)
+      } else {
+        process.nextTick(resolve)
+      }
+    })
   }
 
   /**
